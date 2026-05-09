@@ -88,7 +88,7 @@ class PlayQueue {
   static PlayQueue build({
     required Map<String, ChapterData> chapterDataByVersion,
     required PlaySequence sequence,
-    Map<int, double>? stepSpeeds,
+    Map<String, double>? stepSpeeds,
     int? startVerse,
     int? endVerse,
   }) {
@@ -120,7 +120,7 @@ class PlayQueue {
           audioPath: chapterData.audioPath,
           startTime: timing.start,
           endTime: timing.end,
-          speed: step.speed * (stepSpeeds?[stepIdx] ?? 1.0),
+          speed: step.speed * (stepSpeeds?[step.version] ?? 1.0),
           version: step.version,
           verse: verse,
           isPause: false,

@@ -40,16 +40,16 @@ class CurrentSequenceNotifier extends Notifier<PlaySequence> {
 
 /// Per-step speed multipliers (index → multiplier, default 1.0).
 final stepSpeedsProvider =
-    NotifierProvider<StepSpeedsNotifier, Map<int, double>>(
+    NotifierProvider<StepSpeedsNotifier, Map<String, double>>(
   StepSpeedsNotifier.new,
 );
 
-class StepSpeedsNotifier extends Notifier<Map<int, double>> {
+class StepSpeedsNotifier extends Notifier<Map<String, double>> {
   @override
-  Map<int, double> build() => PrefsService.instance.loadStepSpeeds();
+  Map<String, double> build() => PrefsService.instance.loadStepSpeeds();
 
-  void setSpeed(int stepIndex, double speed) {
-    state = {...state, stepIndex: speed};
+  void setSpeed(String version, double speed) {
+    state = {...state, version: speed};
     PrefsService.instance.saveStepSpeeds(state);
   }
 

@@ -389,9 +389,9 @@ class _PlayerControls extends ConsumerWidget {
                   (sequence.steps.length / 2).ceil(),
                   (i) => _StepSpeedControl(
                     label: sequence.steps[i].version,
-                    speed: stepSpeeds[i] ?? 1.0,
+                    speed: stepSpeeds[sequence.steps[i].version] ?? 1.0,
                     onChanged: (newSpeed) {
-                      ref.read(stepSpeedsProvider.notifier).setSpeed(i, newSpeed);
+                      ref.read(stepSpeedsProvider.notifier).setSpeed(sequence.steps[i].version, newSpeed);
                       ref.read(bilingualPlayerProvider.notifier).loadChapter(
                             book: currentBook,
                             chapter: playerState.chapter,
@@ -447,9 +447,9 @@ class _PlayerControls extends ConsumerWidget {
                     final i = (sequence.steps.length / 2).ceil() + j;
                     return _StepSpeedControl(
                       label: sequence.steps[i].version,
-                      speed: stepSpeeds[i] ?? 1.0,
+                      speed: stepSpeeds[sequence.steps[i].version] ?? 1.0,
                       onChanged: (newSpeed) {
-                        ref.read(stepSpeedsProvider.notifier).setSpeed(i, newSpeed);
+                        ref.read(stepSpeedsProvider.notifier).setSpeed(sequence.steps[i].version, newSpeed);
                         ref.read(bilingualPlayerProvider.notifier).loadChapter(
                               book: currentBook,
                               chapter: playerState.chapter,

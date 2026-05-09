@@ -124,7 +124,7 @@ void main() {
       await svc.loadChapter(
         chapterDataByVersion: {'KJV': kjv, 'CUV': cuv},
         sequence: PresetSequences.enCn,
-        stepSpeeds: {0: 1.5, 1: 0.8},
+        stepSpeeds: {'KJV': 1.5, 'CUV': 0.8},
         bookNumber: 41,
         chapter: 1,
         autoPlay: false,

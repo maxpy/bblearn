@@ -27,17 +27,16 @@ class PrefsService {
   /// Load the saved sequence name, or null if not set.
   String? loadSequenceName() => _prefs.getString(_keySequence);
 
-  /// Save per-step speeds as JSON: {"0": 1.2, "1": 0.8}
-  Future<void> saveStepSpeeds(Map<int, double> speeds) =>
-      _prefs.setString(_keyStepSpeeds,
-          jsonEncode(speeds.map((k, v) => MapEntry(k.toString(), v))));
+  /// Save per-version speeds as JSON: {"KJV": 1.2, "CUV": 0.8}
+  Future<void> saveStepSpeeds(Map<String, double> speeds) =>
+      _prefs.setString(_keyStepSpeeds, jsonEncode(speeds));
 
-  /// Load per-step speeds.
-  Map<int, double> loadStepSpeeds() {
+  /// Load per-version speeds.
+  Map<String, double> loadStepSpeeds() {
     final raw = _prefs.getString(_keyStepSpeeds);
     if (raw == null) return {};
     final map = jsonDecode(raw) as Map<String, dynamic>;
-    return map.map((k, v) => MapEntry(int.parse(k), (v as num).toDouble()));
+    return map.map((k, v) => MapEntry(k, (v as num).toDouble()));
   }
 
   /// Save last played book/chapter.
