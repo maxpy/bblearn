@@ -1,0 +1,38 @@
+# macOS
+.DS_Store
+
+# Audio files (too large for git)
+KJV/
+CUV/
+
+# Node
+node_modules/
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+
+# Wrangler / Cloudflare
+.wrangler/
+
+# Flutter build outputs
+app/bible_player/build/
+app/bible_player/.dart_tool/
+app/bible_player/.flutter-plugins
+app/bible_player/.flutter-plugins-dependencies
+
+# iOS
+app/bible_player/ios/Pods/
+app/bible_player/ios/.symlinks/
+app/bible_player/ios/Flutter/Flutter.framework
+app/bible_player/ios/Flutter/Flutter.podspec
+
+# Android
+app/bible_player/android/.gradle/
+app/bible_player/android/local.properties
+app/bible_player/android/key.properties
+
+# Logs
+*.log
+assets_list.txt

@@ -1,0 +1,66 @@
+/// A single subtitle entry with timing.
+class SubtitleEntry {
+  final int verse;
+  final String text;
+  final int startMs;
+  final int endMs;
+
+  const SubtitleEntry({
+    required this.verse,
+    required this.text,
+    required this.startMs,
+    required this.endMs,
+  });
+
+  Duration get start => Duration(milliseconds: startMs);
+  Duration get end => Duration(milliseconds: endMs);
+  Duration get duration => Duration(milliseconds: endMs - startMs);
+
+  bool isActiveAt(Duration position) {
+    final ms = position.inMilliseconds;
+    return ms >= startMs && ms < endMs;
+  }
+
+  factory SubtitleEntry.fromJson(Map<String, dynamic> json) {
+    return SubtitleEntry(
+      verse: json['verse'] as int,
+      text: (json['text'] as String).trim(),
+      startMs: json['start_ms'] as int,
+      endMs: json['end_ms'] as int,
+    );
+  }
+}
+
+/// All subtitles for a chapter.
+class ChapterSubtitles {
+  final String book;
+  final int chapter;
+  final String version;
+  final List<SubtitleEntry> subtitles;
+
+  const ChapterSubtitles({
+    required this.book,
+    required this.chapter,
+    required this.version,
+    required this.subtitles,
+  });
+
+  /// Find the active subtitle at a given playback position.
+  SubtitleEntry? activeAt(Duration position) {
+    for (final sub in subtitles) {
+      if (sub.isActiveAt(position)) return sub;
+    }
+    return null;
+  }
+
+  factory ChapterSubtitles.fromJson(Map<String, dynamic> json) {
+    return ChapterSubtitles(
+      book: json['book'] as String,
+      chapter: json['chapter'] as int,
+      version: json['version'] as String,
+      subtitles: (json['subtitles'] as List)
+          .map((s) => SubtitleEntry.fromJson(s as Map<String, dynamic>))
+          .toList(),
+    );
+  }
+}
