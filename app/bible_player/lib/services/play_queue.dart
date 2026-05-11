@@ -50,6 +50,17 @@ class PlayQueueItem {
         version = '',
         isPause = true;
 
+  PlayQueueItem copyWithSpeed(double newSpeed) => PlayQueueItem(
+        audioPath: audioPath,
+        startTime: startTime,
+        endTime: endTime,
+        speed: newSpeed,
+        version: version,
+        verse: verse,
+        isPause: isPause,
+        pauseDuration: pauseDuration,
+      );
+
   /// The effective duration of this item in seconds.
   double get duration =>
       isPause ? pauseDuration : (endTime - startTime) / speed;

@@ -1,6 +1,7 @@
 import 'dart:async';
 
 import 'package:flutter/foundation.dart' show kIsWeb;
+import 'package:flutter/services.dart';
 import 'package:just_audio/just_audio.dart';
 
 import '../models/chapter_data.dart';
@@ -56,72 +57,57 @@ class PlaybackState {
   }
 }
 
-/// Service that manages audio playback using just_audio.
-///
-/// Uses ConcatenatingAudioSource so the native AVQueuePlayer handles all
-/// item transitions. This allows playback to continue when the screen is
-/// locked without relying on Dart timers or stream callbacks.
+/// iOS: uses native AVAudioEngine via platform channel.
+/// Web: falls back to just_audio with ConcatenatingAudioSource.
 class AudioPlayerService {
-  late final AudioPlayer _player;
-  PlayQueue? _queue;
+  static const _methodChannel = MethodChannel('com.bibleaudio/audio_player');
+  static const _eventChannel = EventChannel('com.bibleaudio/audio_events');
 
-  /// Maps concatenating source index → PlayQueueItem.
-  List<PlayQueueItem> _indexMap = [];
+  PlayQueue? _queue;
+  List<PlayQueueItem> _items = [];
+  int _currentIdx = 0;
 
   PlaybackState _state = const PlaybackState();
   final _stateController = StreamController<PlaybackState>.broadcast();
+  StreamSubscription? _eventSub;
   Timer? _positionTimer;
   bool _disposed = false;
-  bool _autoPlayEnabled = true;
 
-  // Web-only completion detection via position freeze.
-  Duration _prevPosition = Duration.zero;
-  int _frozenCount = 0;
+  // Web fallback
+  AudioPlayer? _webPlayer;
 
-  StreamSubscription? _playerStateSub;
-  StreamSubscription? _currentIndexSub;
-
-  /// Stream of playback state changes.
   Stream<PlaybackState> get stateStream => _stateController.stream;
-
-  /// Current playback state.
   PlaybackState get state => _state;
-
-  /// The current play queue.
   PlayQueue? get queue => _queue;
-
-  /// Callback invoked when the entire queue finishes playing.
   void Function()? onQueueFinished;
 
-  AudioPlayerService({AudioPlayer? player}) {
-    _player = player ?? AudioPlayer();
-
-    _playerStateSub = _player.playerStateStream.listen((ps) {
-      // ignore: avoid_print
-      print('[APS] state=${ps.processingState} playing=${ps.playing}');
-      if (ps.processingState == ProcessingState.completed) {
-        _onQueueFinished();
-      }
-    });
-
-    _currentIndexSub = _player.currentIndexStream.listen((index) {
-      if (index == null || index >= _indexMap.length) return;
-      final item = _indexMap[index];
-      if (item.isPause) return;
-      // Update UI state for the new item.
-      _updateState(_state.copyWith(
-        currentVerse: item.verse,
-        currentVersion: item.version,
-        position: Duration.zero,
-      ));
-      // Apply per-item speed via microtask to avoid rxdart re-entrancy error.
-      Future.microtask(() {
-        if (!_disposed) _player.setSpeed(item.speed);
-      });
-    });
+  AudioPlayerService() {
+    if (!kIsWeb) {
+      _eventSub = _eventChannel.receiveBroadcastStream().listen(_onNativeEvent);
+    }
   }
 
-  /// Load a chapter and build the play queue.
+  void _onNativeEvent(dynamic event) {
+    if (_disposed) return;
+    final map = event as Map;
+    final type = map['type'] as String;
+    if (type == 'advance') {
+      final idx = map['idx'] as int;
+      _currentIdx = idx;
+      if (idx < _items.length) {
+        final item = _items[idx];
+        _updateState(_state.copyWith(
+          currentVerse: item.verse,
+          currentVersion: item.version,
+        ));
+      }
+    } else if (type == 'finished') {
+      _onQueueFinished();
+    }
+  }
+
+  // MARK: - Public API
+
   Future<void> loadChapter({
     required Map<String, ChapterData> chapterDataByVersion,
     required PlaySequence sequence,
@@ -131,131 +117,144 @@ class AudioPlayerService {
     int? startVerse,
     bool autoPlay = true,
   }) async {
-    _autoPlayEnabled = autoPlay;
-    _updateState(_state.copyWith(
-      isLoading: true,
-      currentBookNumber: bookNumber,
-      currentChapter: chapter,
-      chapterFinished: false,
-    ));
-
-    await _player.stop();
-    _stopPositionTracking();
-
-    _queue = PlayQueue.build(
+    final queue = PlayQueue.build(
       chapterDataByVersion: chapterDataByVersion,
       sequence: sequence,
       stepSpeeds: stepSpeeds,
+      startVerse: startVerse,
     );
 
-    // Build ConcatenatingAudioSource from queue items.
-    final sources = <AudioSource>[];
-    _indexMap = [];
+    _queue = queue;
+    _items = queue.items.where((i) => !i.isPause).toList();
+    _currentIdx = 0;
 
-    for (final item in _queue!.items) {
-      if (item.isPause) {
-        // SilenceAudioSource is not supported on iOS native layer — skip gaps.
-        // The natural silence at the end of each audio clip provides the gap.
-        if (kIsWeb) {
-          final pauseMs = (item.pauseDuration * 1000).round().clamp(100, 10000);
-          sources.add(SilenceAudioSource(
-            duration: Duration(milliseconds: pauseMs),
-          ));
-          _indexMap.add(item);
-        }
-        continue;
-      }
-      final uri = item.audioPath.startsWith('http')
-          ? Uri.parse(item.audioPath)
-          : Uri(scheme: 'asset', path: item.audioPath);
-      sources.add(ClippingAudioSource(
-        child: AudioSource.uri(uri),
-        start: Duration(milliseconds: (item.startTime * 1000).round()),
-        // Add 150ms padding to end to prevent AVQueuePlayer from cutting off
-        // the last word early when transitioning to the next item.
-        end: Duration(milliseconds: (item.endTime * 1000).round() + 150),
-      ));
-      _indexMap.add(item);
-    }
-
-    // Find start index.
-    int startIndex = 0;
-    if (startVerse != null && startVerse > 1) {
-      for (int i = 0; i < _indexMap.length; i++) {
-        if (!_indexMap[i].isPause && _indexMap[i].verse == startVerse) {
-          startIndex = i;
+    if (startVerse != null) {
+      for (int i = 0; i < _items.length; i++) {
+        if (_items[i].verse >= startVerse) {
+          _currentIdx = i;
           break;
         }
       }
     }
 
-    // Set initial verse/version from first non-pause item at or after startIndex.
-    for (int i = startIndex; i < _indexMap.length; i++) {
-      if (!_indexMap[i].isPause) {
-        _updateState(_state.copyWith(
-          isLoading: false,
-          currentVerse: _indexMap[i].verse,
-          currentVersion: _indexMap[i].version,
-        ));
-        break;
-      }
+    _updateState(_state.copyWith(
+      isLoading: true,
+      currentBookNumber: bookNumber,
+      currentChapter: chapter,
+      currentVerse: _items.isEmpty ? 1 : _items[_currentIdx].verse,
+      currentVersion: _items.isEmpty ? 'CUV' : _items[_currentIdx].version,
+      chapterFinished: false,
+    ));
+
+    if (kIsWeb) {
+      await _loadChapterWeb(queue);
+      if (autoPlay) await play();
+      return;
     }
 
-    if (sources.isEmpty) {
+    final urls = _items.map((i) => i.audioPath).toSet().toList();
+    try {
+      await _methodChannel.invokeMethod('loadFiles', {'urls': urls});
+    } catch (e) {
+      // ignore: avoid_print
+      print('[APS] loadFiles error: $e');
       _updateState(_state.copyWith(isLoading: false));
       return;
     }
 
+    final clips = _items.map((item) => {
+      'url': item.audioPath,
+      'start': item.startTime,
+      'end': item.endTime,
+      'speed': item.speed,
+    }).toList();
+
     try {
+      await _methodChannel.invokeMethod('loadClips', {'clips': clips});
+    } catch (e) {
       // ignore: avoid_print
-      print('[APS] loading ${sources.length} sources, startIndex=$startIndex');
-      final duration = await _player.setAudioSource(
-        ConcatenatingAudioSource(
-          children: sources,
-        ),
-        initialIndex: startIndex,
-        initialPosition: Duration.zero,
-      );
-
-      // Set initial speed.
-      if (startIndex < _indexMap.length) {
-        await _player.setSpeed(_indexMap[startIndex].speed);
-      }
-
-      _updateState(_state.copyWith(
-        isLoading: false,
-        isPlaying: false,
-        totalDuration: duration ?? Duration.zero,
-        position: Duration.zero,
-      ));
-
-      if (autoPlay) {
-        await play();
-      }
-    } catch (e, st) {
-      // ignore: avoid_print
-      print('[APS] loadChapter error: $e\n$st');
-      _updateState(_state.copyWith(isLoading: false));
+      print('[APS] loadClips error: $e');
     }
+
+    if (_currentIdx > 0) {
+      await _methodChannel.invokeMethod('seekToClip', {'idx': _currentIdx});
+    }
+
+    _updateState(_state.copyWith(isLoading: false));
+
+    if (autoPlay) await play();
   }
 
-  /// Play / resume playback.
   Future<void> play() async {
-    if (_queue == null || _queue!.isEmpty) return;
-    _autoPlayEnabled = true;
+    if (_items.isEmpty) return;
     _updateState(_state.copyWith(isPlaying: true));
-    await _player.play();
+
+    if (kIsWeb) {
+      await _webPlayer?.play();
+      _startPositionTracking();
+      return;
+    }
+
+    await _methodChannel.invokeMethod('play');
     _startPositionTracking();
   }
 
-  /// Pause playback.
   Future<void> pause() async {
-    await _player.pause();
-    _stopPositionTracking();
     _updateState(_state.copyWith(isPlaying: false));
+    _stopPositionTracking();
+
+    if (kIsWeb) {
+      await _webPlayer?.pause();
+      return;
+    }
+
+    await _methodChannel.invokeMethod('pause');
   }
 
-  /// Toggle play / pause.
+  /// Update per-version speeds without reloading files.
+  /// Rebuilds clips with new speeds and seeks back to current verse.
+  Future<void> updateSpeeds({
+    required PlaySequence sequence,
+    required Map<String, double> stepSpeeds,
+  }) async {
+    if (_queue == null || _items.isEmpty) return;
+
+    // Rebuild items with updated speeds
+    final updatedItems = _items.map((item) {
+      final speed = stepSpeeds[item.version] ?? 1.0;
+      return item.copyWithSpeed(speed);
+    }).toList();
+    _items = updatedItems;
+
+    if (kIsWeb) {
+      // Web: no easy way to update speed mid-play; just update state
+      return;
+    }
+
+    final wasPlaying = _state.isPlaying;
+    final currentVerse = _state.currentVerse;
+
+    final clips = _items.map((item) => {
+      'url': item.audioPath,
+      'start': item.startTime,
+      'end': item.endTime,
+      'speed': item.speed,
+    }).toList();
+
+    await _methodChannel.invokeMethod('loadClips', {'clips': clips});
+
+    // Seek back to current verse
+    for (int i = 0; i < _items.length; i++) {
+      if (_items[i].verse >= currentVerse) {
+        _currentIdx = i;
+        await _methodChannel.invokeMethod('seekToClip', {'idx': i});
+        break;
+      }
+    }
+
+    if (wasPlaying) await play();
+  }
+
   Future<void> togglePlayPause() async {
     if (_state.isPlaying) {
       await pause();
@@ -264,125 +263,130 @@ class AudioPlayerService {
     }
   }
 
-  /// Skip to the next verse.
-  Future<void> nextVerse() async {
-    final currentVerse = _state.currentVerse;
-    // Find the next verse index after current.
-    final currentIdx = _player.currentIndex ?? 0;
-    for (int i = currentIdx + 1; i < _indexMap.length; i++) {
-      final item = _indexMap[i];
-      if (!item.isPause && item.verse > currentVerse) {
-        await _player.seek(Duration.zero, index: i);
-        return;
-      }
-    }
-    await _onQueueFinished();
-  }
-
-  /// Go to the previous verse.
-  Future<void> previousVerse() async {
-    final currentVerse = _state.currentVerse;
-    final currentIdx = _player.currentIndex ?? 0;
-    // Find the first index of the previous verse.
-    for (int i = currentIdx - 1; i >= 0; i--) {
-      final item = _indexMap[i];
-      if (!item.isPause && item.verse < currentVerse) {
-        await _player.seek(Duration.zero, index: i);
-        return;
-      }
-    }
-    // Already at first verse — seek to beginning.
-    await _player.seek(Duration.zero, index: 0);
-  }
-
-  /// Seek to a specific verse.
   Future<void> seekToVerse(int verse) async {
-    for (int i = 0; i < _indexMap.length; i++) {
-      if (!_indexMap[i].isPause && _indexMap[i].verse == verse) {
-        await _player.seek(Duration.zero, index: i);
+    for (int i = 0; i < _items.length; i++) {
+      if (_items[i].verse == verse) {
+        _currentIdx = i;
+        _updateState(_state.copyWith(
+          currentVerse: _items[i].verse,
+          currentVersion: _items[i].version,
+        ));
+        if (!kIsWeb) {
+          await _methodChannel.invokeMethod('seekToClip', {'idx': i});
+        }
         return;
       }
     }
   }
 
-  /// Set playback speed.
-  Future<void> setSpeed(double speed) async {
-    await _player.setSpeed(speed);
+  Future<void> nextVerse() async {
+    final verses = _items.map((i) => i.verse).toSet().toList()..sort();
+    final currentVerse = _state.currentVerse;
+    final idx = verses.indexOf(currentVerse);
+    if (idx >= 0 && idx < verses.length - 1) {
+      await seekToVerse(verses[idx + 1]);
+    }
   }
 
-  /// Called when the entire queue is finished.
-  Future<void> _onQueueFinished() async {
+  Future<void> previousVerse() async {
+    final verses = _items.map((i) => i.verse).toSet().toList()..sort();
+    final currentVerse = _state.currentVerse;
+    final idx = verses.indexOf(currentVerse);
+    if (idx > 0) {
+      await seekToVerse(verses[idx - 1]);
+    }
+  }
+
+  void _onQueueFinished() {
     _stopPositionTracking();
     _updateState(_state.copyWith(
       isPlaying: false,
-      position: Duration.zero,
       chapterFinished: true,
     ));
-    if (_autoPlayEnabled) {
-      onQueueFinished?.call();
-    }
+    onQueueFinished?.call();
   }
 
-  /// Start periodic position updates.
   void _startPositionTracking() {
     _positionTimer?.cancel();
-    _positionTimer = Timer.periodic(const Duration(milliseconds: 100), (_) {
+    _positionTimer = Timer.periodic(const Duration(milliseconds: 100), (_) async {
       if (_disposed) return;
-      final pos = _player.position;
-      _updateState(_state.copyWith(position: pos));
-
-      // On web, ClippingAudioSource doesn't fire ProcessingState.completed
-      // reliably. Detect completion by position freezing at the end of clip.
       if (kIsWeb) {
-        final idx = _player.currentIndex;
-        if (idx != null && idx < _indexMap.length) {
-          final item = _indexMap[idx];
-          if (!item.isPause) {
-            final clipMs = ((item.endTime - item.startTime) * 1000).round();
-            if (pos == _prevPosition &&
-                pos.inMilliseconds > (clipMs * 0.8).round()) {
-              _frozenCount++;
-              if (_frozenCount >= 2) {
-                _frozenCount = 0;
-                // Advance to next item on web.
-                final nextIdx = (idx + 1);
-                if (nextIdx < _indexMap.length) {
-                  _player.seek(Duration.zero, index: nextIdx);
-                } else {
-                  _onQueueFinished();
-                }
-              }
-            } else {
-              _frozenCount = 0;
-            }
-            _prevPosition = pos;
-          }
-        }
+        _updateState(_state.copyWith(position: _webPlayer?.position ?? Duration.zero));
+        return;
       }
+      try {
+        final pos = await _methodChannel.invokeMethod<double>('getPosition') ?? 0.0;
+        final idx = await _methodChannel.invokeMethod<int>('getCurrentClipIndex') ?? _currentIdx;
+        _currentIdx = idx;
+        if (idx < _items.length) {
+          final item = _items[idx];
+          _updateState(_state.copyWith(
+            position: Duration(milliseconds: (pos * 1000).round()),
+            currentVerse: item.verse,
+            currentVersion: item.version,
+          ));
+        }
+      } catch (_) {}
     });
   }
 
-  /// Stop periodic position updates.
   void _stopPositionTracking() {
     _positionTimer?.cancel();
     _positionTimer = null;
   }
 
-  /// Update state and notify listeners.
   void _updateState(PlaybackState newState) {
     _state = newState;
-    if (!_disposed) {
-      _stateController.add(newState);
+    if (!_disposed) _stateController.add(newState);
+  }
+
+  void dispose() {
+    _disposed = true;
+    _stopPositionTracking();
+    _eventSub?.cancel();
+    _stateController.close();
+    _webPlayer?.dispose();
+    if (!kIsWeb) {
+      _methodChannel.invokeMethod('stop');
     }
   }
 
-  /// Release resources.
-  void dispose() {
-    _disposed = true;
-    _positionTimer?.cancel();
-    _playerStateSub?.cancel();
-    _currentIndexSub?.cancel();
-    _stateController.close();
-    _player.dispose();
+  // MARK: - Web fallback (just_audio ConcatenatingAudioSource)
+
+  Future<void> _loadChapterWeb(PlayQueue queue) async {
+    _webPlayer?.dispose();
+    _webPlayer = AudioPlayer();
+
+    final sources = <AudioSource>[];
+    for (final item in queue.items) {
+      if (item.isPause) continue;
+      final uri = item.audioPath.startsWith('http')
+          ? Uri.parse(item.audioPath)
+          : Uri(scheme: 'asset', path: item.audioPath);
+      sources.add(ClippingAudioSource(
+        child: AudioSource.uri(uri),
+        start: Duration(milliseconds: (item.startTime * 1000).round()),
+        end: Duration(milliseconds: (item.endTime * 1000).round()),
+      ));
+    }
+
+    final concat = ConcatenatingAudioSource(children: sources);
+    await _webPlayer!.setAudioSource(concat, initialIndex: _currentIdx);
+    _webPlayer!.currentIndexStream.listen((idx) {
+      if (idx != null && idx < _items.length) {
+        _currentIdx = idx;
+        _updateState(_state.copyWith(
+          currentVerse: _items[idx].verse,
+          currentVersion: _items[idx].version,
+        ));
+      }
+    });
+    _webPlayer!.playerStateStream.listen((s) {
+      if (s.processingState == ProcessingState.completed) {
+        _onQueueFinished();
+      }
+    });
+
+    _updateState(_state.copyWith(isLoading: false));
   }
 }

@@ -24,7 +24,7 @@ class BibleAudioApp extends StatelessWidget {
           ThemeData(brightness: Brightness.dark).textTheme,
         ),
       ),
-      routerConfig: appRouter,
+      routerConfig: buildAppRouter(),
     );
   }
 }

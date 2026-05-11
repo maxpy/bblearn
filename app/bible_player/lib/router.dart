@@ -4,7 +4,7 @@ import 'screens/book_screen.dart';
 import 'screens/player_screen.dart';
 import 'services/prefs_service.dart';
 
-final appRouter = GoRouter(
+GoRouter buildAppRouter() => GoRouter(
   initialLocation: '/player/${PrefsService.instance.loadLastBook()}/${PrefsService.instance.loadLastChapter()}',
   routes: [
     GoRoute(

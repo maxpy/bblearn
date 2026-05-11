@@ -54,7 +54,10 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen> {
 
     return Scaffold(
       appBar: AppBar(
-        title: Text('${currentBook.nameEn} $currentChapter  ${currentBook.nameZh}'),
+        title: Text(
+          '${currentBook.nameEn} $currentChapter  ${currentBook.nameZh}',
+          key: const ValueKey('chapter_title'),
+        ),
         leading: IconButton(
           icon: const Icon(Icons.arrow_back),
           onPressed: () => context.go('/book/${currentBook.number}'),
@@ -362,20 +365,40 @@ class _PlayerControls extends ConsumerWidget {
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
+            // Thin loading indicator at the top of the panel
+            SizedBox(
+              height: 2,
+              child: playback.isLoading
+                  ? LinearProgressIndicator(
+                      backgroundColor: Colors.transparent,
+                      color: theme.colorScheme.primary,
+                    )
+                  : const SizedBox.shrink(),
+            ),
             // Verse progress indicator
             Padding(
               padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 2),
               child: Row(
                 children: [
-                  Text(
-                    'v.${playback.currentVerse}',
-                    style: theme.textTheme.labelSmall,
+                  Semantics(
+                    identifier: 'current_verse_label',
+                    label: 'v.${playback.currentVerse}',
+                    child: Text(
+                      'v.${playback.currentVerse}',
+                      key: const ValueKey('current_verse_label'),
+                      style: theme.textTheme.labelSmall,
+                    ),
                   ),
                   const Spacer(),
-                  Text(
-                    playback.currentVersion,
-                    style: theme.textTheme.labelSmall?.copyWith(
-                      color: theme.colorScheme.primary,
+                  Semantics(
+                    identifier: 'current_version_label',
+                    label: playback.currentVersion,
+                    child: Text(
+                      playback.currentVersion,
+                      key: const ValueKey('current_version_label'),
+                      style: theme.textTheme.labelSmall?.copyWith(
+                        color: theme.colorScheme.primary,
+                      ),
                     ),
                   ),
                 ],
@@ -392,10 +415,10 @@ class _PlayerControls extends ConsumerWidget {
                     speed: stepSpeeds[sequence.steps[i].version] ?? 1.0,
                     onChanged: (newSpeed) {
                       ref.read(stepSpeedsProvider.notifier).setSpeed(sequence.steps[i].version, newSpeed);
-                      ref.read(bilingualPlayerProvider.notifier).loadChapter(
-                            book: currentBook,
-                            chapter: playerState.chapter,
-                            startVerse: playback.currentVerse,
+                      final updatedSpeeds = ref.read(stepSpeedsProvider);
+                      ref.read(audioPlayerServiceProvider).updateSpeeds(
+                            sequence: sequence,
+                            stepSpeeds: updatedSpeeds,
                           );
                     },
                   ),
@@ -415,17 +438,22 @@ class _PlayerControls extends ConsumerWidget {
                         tooltip: '上一节',
                         onPressed: () => svc.previousVerse(),
                       ),
-                      IconButton(
-                        iconSize: 52,
-                        icon: Icon(
-                          playback.isLoading
-                              ? Icons.hourglass_empty
-                              : playback.isPlaying
-                                  ? Icons.pause_circle_filled
-                                  : Icons.play_circle_filled,
-                          color: theme.colorScheme.primary,
+                      Semantics(
+                        identifier: 'play_pause_button',
+                        button: true,
+                        label: playback.isPlaying ? 'pause' : 'play',
+                        child: IconButton(
+                          iconSize: 52,
+                          icon: Icon(
+                            playback.isLoading
+                                ? Icons.hourglass_empty
+                                : playback.isPlaying
+                                    ? Icons.pause_circle_filled
+                                    : Icons.play_circle_filled,
+                            color: theme.colorScheme.primary,
+                          ),
+                          onPressed: () => svc.togglePlayPause(),
                         ),
-                        onPressed: () => svc.togglePlayPause(),
                       ),
                       IconButton(
                         icon: const Icon(Icons.skip_next),
@@ -450,10 +478,10 @@ class _PlayerControls extends ConsumerWidget {
                       speed: stepSpeeds[sequence.steps[i].version] ?? 1.0,
                       onChanged: (newSpeed) {
                         ref.read(stepSpeedsProvider.notifier).setSpeed(sequence.steps[i].version, newSpeed);
-                        ref.read(bilingualPlayerProvider.notifier).loadChapter(
-                              book: currentBook,
-                              chapter: playerState.chapter,
-                              startVerse: playback.currentVerse,
+                        final updatedSpeeds = ref.read(stepSpeedsProvider);
+                        ref.read(audioPlayerServiceProvider).updateSpeeds(
+                              sequence: sequence,
+                              stepSpeeds: updatedSpeeds,
                             );
                       },
                     );
@@ -560,7 +588,7 @@ class _StepSpeedControlState extends State<_StepSpeedControl> {
     final theme = Theme.of(context);
     const itemExtent = 40.0;
     int selectedIdx = _indexOfSpeed(widget.speed);
-    showModalBottomSheet(
+    showModalBottomSheet<void>(
       context: context,
       builder: (_) {
         return StatefulBuilder(
@@ -583,7 +611,6 @@ class _StepSpeedControlState extends State<_StepSpeedControl> {
                       physics: const FixedExtentScrollPhysics(),
                       onSelectedItemChanged: (idx) {
                         setSheetState(() => selectedIdx = idx);
-                        widget.onChanged(_speedSteps[idx]);
                       },
                       childDelegate: ListWheelChildBuilderDelegate(
                         childCount: _speedSteps.length,
@@ -613,7 +640,13 @@ class _StepSpeedControlState extends State<_StepSpeedControl> {
           },
         );
       },
-    );
+    ).then((_) {
+      // Apply speed once after sheet is dismissed
+      final newSpeed = _speedSteps[selectedIdx];
+      if (newSpeed != widget.speed) {
+        widget.onChanged(newSpeed);
+      }
+    });
   }
 
   @override
