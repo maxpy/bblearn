@@ -407,22 +407,29 @@ class _PlayerControls extends ConsumerWidget {
             // Controls + speed in one row
             Row(
               children: [
-                // Left speed controls (first half of steps)
-                ...List.generate(
-                  (sequence.steps.length / 2).ceil(),
-                  (i) => _StepSpeedControl(
-                    label: sequence.steps[i].version,
-                    speed: stepSpeeds[sequence.steps[i].version] ?? 1.0,
-                    onChanged: (newSpeed) {
-                      ref.read(stepSpeedsProvider.notifier).setSpeed(sequence.steps[i].version, newSpeed);
-                      final updatedSpeeds = ref.read(stepSpeedsProvider);
-                      ref.read(audioPlayerServiceProvider).updateSpeeds(
-                            sequence: sequence,
-                            stepSpeeds: updatedSpeeds,
-                          );
-                    },
-                  ),
-                ),
+                // Left speed controls (first half of unique versions)
+                ...() {
+                  final uniqueVersions = sequence.steps
+                      .map((s) => s.version)
+                      .toSet()
+                      .toList();
+                  final leftCount = (uniqueVersions.length / 2).ceil();
+                  return List.generate(leftCount, (i) {
+                    final version = uniqueVersions[i];
+                    return _StepSpeedControl(
+                      label: version,
+                      speed: stepSpeeds[version] ?? 1.0,
+                      onChanged: (newSpeed) {
+                        ref.read(stepSpeedsProvider.notifier).setSpeed(version, newSpeed);
+                        final updatedSpeeds = ref.read(stepSpeedsProvider);
+                        ref.read(audioPlayerServiceProvider).updateSpeeds(
+                              sequence: sequence,
+                              stepSpeeds: updatedSpeeds,
+                            );
+                      },
+                    );
+                  });
+                }(),
                 // Center playback controls
                 Expanded(
                   child: Row(
@@ -468,16 +475,20 @@ class _PlayerControls extends ConsumerWidget {
                     ],
                   ),
                 ),
-                // Right speed controls (second half of steps)
-                ...List.generate(
-                  sequence.steps.length - (sequence.steps.length / 2).ceil(),
-                  (j) {
-                    final i = (sequence.steps.length / 2).ceil() + j;
+                // Right speed controls (second half of unique versions)
+                ...() {
+                  final uniqueVersions = sequence.steps
+                      .map((s) => s.version)
+                      .toSet()
+                      .toList();
+                  final leftCount = (uniqueVersions.length / 2).ceil();
+                  return List.generate(uniqueVersions.length - leftCount, (j) {
+                    final version = uniqueVersions[leftCount + j];
                     return _StepSpeedControl(
-                      label: sequence.steps[i].version,
-                      speed: stepSpeeds[sequence.steps[i].version] ?? 1.0,
+                      label: version,
+                      speed: stepSpeeds[version] ?? 1.0,
                       onChanged: (newSpeed) {
-                        ref.read(stepSpeedsProvider.notifier).setSpeed(sequence.steps[i].version, newSpeed);
+                        ref.read(stepSpeedsProvider.notifier).setSpeed(version, newSpeed);
                         final updatedSpeeds = ref.read(stepSpeedsProvider);
                         ref.read(audioPlayerServiceProvider).updateSpeeds(
                               sequence: sequence,
@@ -485,8 +496,8 @@ class _PlayerControls extends ConsumerWidget {
                             );
                       },
                     );
-                  },
-                ),
+                  });
+                }(),
               ],
             ),
           ],
