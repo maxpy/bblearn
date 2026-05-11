@@ -271,7 +271,9 @@ class AudioPlayerService {
           currentVerse: _items[i].verse,
           currentVersion: _items[i].version,
         ));
-        if (!kIsWeb) {
+        if (kIsWeb) {
+          await Future.microtask(() => _webPlayer?.seek(Duration.zero, index: i));
+        } else {
           await _methodChannel.invokeMethod('seekToClip', {'idx': i});
         }
         return;
