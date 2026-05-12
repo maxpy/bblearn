@@ -1,7 +1,9 @@
+import 'dart:convert';
 import 'dart:io';
 
 import 'package:flutter/foundation.dart' show kIsWeb, debugPrint;
 import 'package:flutter/services.dart';
+import 'package:http/http.dart' as http;
 import 'package:path/path.dart' as p;
 import 'package:path_provider/path_provider.dart';
 import 'package:sqflite/sqflite.dart';
@@ -10,10 +12,10 @@ import '../models/bible_book.dart';
 import '../models/chapter_data.dart';
 import '../models/verse_text.dart';
 import '../models/verse_timing.dart';
-import 'asset_service.dart';
 
-/// Loads Bible data from SQLite (mobile) or JSON assets (web).
+/// Loads Bible data from SQLite (mobile) or Cloudflare KV Worker API (web).
 class DbService {
+  static const _kvApiBase = 'https://bible-api.maxpanyong.workers.dev/bible';
   static DbService? _instance;
   static DbService get instance => _instance!;
 
@@ -63,17 +65,53 @@ class DbService {
 
     ChapterData data;
     if (kIsWeb) {
-      data = await AssetService.instance.loadChapter(
-        version: version,
-        book: book,
-        chapter: chapter,
-      );
+      data = await _loadFromKv(version: version, book: book, chapter: chapter);
     } else {
       data = await _loadFromDb(version: version, book: book, chapter: chapter);
     }
 
     _cache[key] = data;
     return data;
+  }
+
+  Future<ChapterData> _loadFromKv({
+    required String version,
+    required BibleBook book,
+    required int chapter,
+  }) async {
+    final url = '$_kvApiBase/$version/${book.number}/$chapter';
+    debugPrint('[DbService] KV fetch: $url');
+    final response = await http.get(Uri.parse(url));
+    if (response.statusCode != 200) {
+      throw Exception('[DbService] KV API error ${response.statusCode}: $url');
+    }
+    final List<dynamic> rows = jsonDecode(response.body) as List<dynamic>;
+    debugPrint('[DbService] KV $version ${book.number}:$chapter → ${rows.length} verses');
+
+    final timings = rows
+        .map((r) => VerseTiming(
+              verse: r['verse'] as int,
+              start: (r['start'] as num).toDouble(),
+              end: (r['end'] as num).toDouble(),
+              text: r['text'] as String,
+            ))
+        .toList();
+
+    final verses = rows
+        .map((r) => VerseText(
+              verse: r['verse'] as int,
+              text: r['text'] as String,
+            ))
+        .toList();
+
+    return ChapterData(
+      version: version,
+      bookNumber: book.number,
+      chapter: chapter,
+      verses: verses,
+      timings: timings,
+      audioPath: _audioUrl(version, book, chapter),
+    );
   }
 
   Future<ChapterData> _loadFromDb({

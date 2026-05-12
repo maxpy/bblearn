@@ -1,0 +1,7 @@
+name = "bible-api"
+main = "src/index.js"
+compatibility_date = "2024-01-01"
+
+[[kv_namespaces]]
+binding = "BBLEARN"
+id = "f4e288d4352b4f1fa18808c77d50ba46"

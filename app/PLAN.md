@@ -543,3 +543,30 @@ Debugger: Target crashed!
 **影响:** 无法进行交互式调试，难以诊断运行时问题
 
 **临时方案:** 使用静态 HTTP server (`python3 -m http.server 9000 --directory build/web`) 验证构建结果
+
+---
+
+### ✅ Web 版无经文显示
+**发现日期:** 2026-05-12
+**状态:** ✅ 已修复
+
+**现象:** Web 版 (`web.bblearn.uk`) 打开后无经文内容，原因是 web 平台无法使用 SQLite，旧的 `AssetService` JSON asset fallback 文件不存在。
+
+**修复方案:**
+1. 将 `bible.db` 中全部 62133 条经文（含时间戳）导出为 Cloudflare KV 格式
+   - Key: `bible:{version}:{book}:{chapter}`（如 `bible:KJV:41:1`）
+   - Value: JSON array of `{verse, text, start, end}`
+   - 共 2378 个 key（1189 章 × KJV + CUV），11MB
+   - 导出脚本: `scripts/export_bible_to_kv.py`
+   - 上传至 KV namespace `bblearn`（ID: `f4e288d4352b4f1fa18808c77d50ba46`）
+
+2. 创建 Cloudflare Worker `bible-api`（`workers/bible-api/`）
+   - 路由: `GET /bible/{version}/{book}/{chapter}`
+   - 从 KV 读取并返回 JSON，带 CORS 头和 24h 缓存
+   - 部署地址: `https://bible-api.maxpanyong.workers.dev`
+
+3. 更新 `lib/services/db_service.dart`
+   - Web 平台改为调用 Worker API（`_loadFromKv()`），移除 `AssetService` 依赖
+   - 使用 `http` 包（已有依赖）发起请求
+
+**验证:** Worker API 测试全部通过（KJV/CUV 各章节、404 处理、CORS 头正确）
