@@ -73,8 +73,8 @@ class AudioPlayerService {
   Timer? _positionTimer;
   bool _disposed = false;
 
-  // Web fallback
-  AudioPlayer? _webPlayer;
+  // Web fallback — see _webPlayers map below
+  bool _webSourceLoaded = false;
 
   Stream<PlaybackState> get stateStream => _stateController.stream;
   PlaybackState get state => _state;
@@ -147,8 +147,21 @@ class AudioPlayerService {
     ));
 
     if (kIsWeb) {
-      await _loadChapterWeb(queue);
-      if (autoPlay) await play();
+      if (_items.isEmpty) {
+        _updateState(_state.copyWith(isLoading: false));
+        return;
+      }
+      try {
+        await _loadChapterWeb(queue);
+      } catch (e) {
+        // ignore: avoid_print
+        print('[APS] _loadChapterWeb error: $e');
+        _updateState(_state.copyWith(isLoading: false));
+        return;
+      }
+      // On web, don't autoPlay here — setAudioSource needs a user gesture on Safari.
+      // The play button will call play() which triggers lazy source loading.
+      _updateState(_state.copyWith(isLoading: false));
       return;
     }
 
@@ -187,10 +200,22 @@ class AudioPlayerService {
 
   Future<void> play() async {
     if (_items.isEmpty) return;
+    // ignore: avoid_print
+    print('[APS] play() called, items=${_items.length}, webSourceLoaded=$_webSourceLoaded');
     _updateState(_state.copyWith(isPlaying: true));
 
     if (kIsWeb) {
-      await _webPlayer?.play();
+      try {
+        if (!_webSourceLoaded) {
+          await _webPlayerSetSource();
+          _startWebClipTimer();
+        }
+        _webPlayAndAdvance(); // fire-and-forget chain
+      } catch (e) {
+        // ignore: avoid_print
+        print('[APS] web play() error (likely autoplay policy): $e');
+        _updateState(_state.copyWith(isPlaying: false));
+      }
       _startPositionTracking();
       return;
     }
@@ -267,13 +292,29 @@ class AudioPlayerService {
     for (int i = 0; i < _items.length; i++) {
       if (_items[i].verse == verse) {
         _currentIdx = i;
-        _updateState(_state.copyWith(
-          currentVerse: _items[i].verse,
-          currentVersion: _items[i].version,
-        ));
         if (kIsWeb) {
-          await Future.microtask(() => _webPlayer?.seek(Duration.zero, index: i));
+          if (_webSourceLoaded) {
+            final wasPlaying = _state.isPlaying;
+            _updateState(_state.copyWith(isPlaying: false)); // stop current chain
+            _webPlayerStateSub?.cancel();
+            await _webPlayer?.pause();
+            await _webPrepareClip(i);
+            if (wasPlaying) {
+              _updateState(_state.copyWith(isPlaying: true));
+              _webPlayAndAdvance();
+            }
+          } else {
+            _currentIdx = i;
+            _updateState(_state.copyWith(
+              currentVerse: _items[i].verse,
+              currentVersion: _items[i].version,
+            ));
+          }
         } else {
+          _updateState(_state.copyWith(
+            currentVerse: _items[i].verse,
+            currentVersion: _items[i].version,
+          ));
           await _methodChannel.invokeMethod('seekToClip', {'idx': i});
         }
         return;
@@ -345,50 +386,114 @@ class AudioPlayerService {
   void dispose() {
     _disposed = true;
     _stopPositionTracking();
+    _webClipTimer?.cancel();
+    _webPlayerStateSub?.cancel();
     _eventSub?.cancel();
     _stateController.close();
     _webPlayer?.dispose();
+    for (final p in _webPlayers.values) {
+      p.dispose();
+    }
+    _webPlayers.clear();
     if (!kIsWeb) {
       _methodChannel.invokeMethod('stop');
     }
   }
 
-  // MARK: - Web fallback (just_audio ConcatenatingAudioSource)
+  // MARK: - Web fallback
+  //
+  // One AudioPlayer per unique MP3 URL (cached in _webPlayers).
+  // Uses seek() + positionStream to clip verses precisely, avoiding
+  // ClippingAudioSource which has MP3 frame-alignment seek errors on web.
+
+  final Map<String, AudioPlayer> _webPlayers = {};
+  AudioPlayer? _webPlayer;       // current active player
+  Timer? _webClipTimer;
+  StreamSubscription? _webPlayerStateSub;
+  double _webClipEnd = 0.0;      // endTime of the currently playing clip (seconds)
 
   Future<void> _loadChapterWeb(PlayQueue queue) async {
-    _webPlayer?.dispose();
-    _webPlayer = AudioPlayer();
+    _webClipTimer?.cancel();
+    _webPlayerStateSub?.cancel();
+    for (final p in _webPlayers.values) {
+      await p.dispose();
+    }
+    _webPlayers.clear();
+    _webPlayer = null;
+    _webSourceLoaded = false;
+  }
 
-    final sources = <AudioSource>[];
-    for (final item in queue.items) {
-      if (item.isPause) continue;
-      final uri = item.audioPath.startsWith('http')
-          ? Uri.parse(item.audioPath)
-          : Uri(scheme: 'asset', path: item.audioPath);
-      sources.add(ClippingAudioSource(
-        child: AudioSource.uri(uri),
-        start: Duration(milliseconds: (item.startTime * 1000).round()),
-        end: Duration(milliseconds: (item.endTime * 1000).round()),
-      ));
+  /// Called lazily on first play() — requires a user gesture on Safari.
+  Future<void> _webPlayerSetSource() async {
+    await _webPrepareClip(_currentIdx);
+    _webSourceLoaded = true;
+  }
+
+  /// Ensure the AudioPlayer for [idx]'s URL is loaded and seeked to startTime.
+  Future<void> _webPrepareClip(int idx) async {
+    if (idx >= _items.length) {
+      _onQueueFinished();
+      return;
+    }
+    final item = _items[idx];
+    final url = item.audioPath;
+    // ignore: avoid_print
+    print('[APS] _webLoadClip idx=$idx verse=${item.verse} url=$url');
+
+    AudioPlayer player;
+    if (_webPlayers.containsKey(url)) {
+      player = _webPlayers[url]!;
+    } else {
+      player = AudioPlayer();
+      final uri = url.startsWith('http')
+          ? Uri.parse(url)
+          : Uri(scheme: 'asset', path: url);
+      await player.setAudioSource(AudioSource.uri(uri));
+      _webPlayers[url] = player;
     }
 
-    final concat = ConcatenatingAudioSource(children: sources);
-    await _webPlayer!.setAudioSource(concat, initialIndex: _currentIdx);
-    _webPlayer!.currentIndexStream.listen((idx) {
-      if (idx != null && idx < _items.length) {
-        _currentIdx = idx;
-        _updateState(_state.copyWith(
-          currentVerse: _items[idx].verse,
-          currentVersion: _items[idx].version,
-        ));
-      }
-    });
-    _webPlayer!.playerStateStream.listen((s) {
-      if (s.processingState == ProcessingState.completed) {
-        _onQueueFinished();
+    _webPlayer = player;
+    _webClipEnd = item.endTime;
+    final startMs = (item.startTime * 1000).round();
+    // ignore: avoid_print
+    print('[APS] seek idx=$idx start=${item.startTime.toStringAsFixed(3)}s end=${item.endTime.toStringAsFixed(3)}s');
+    await player.seek(Duration(milliseconds: startMs));
+
+    _currentIdx = idx;
+    _updateState(_state.copyWith(
+      currentVerse: item.verse,
+      currentVersion: item.version,
+    ));
+  }
+
+  /// Play current clip and advance when position reaches endTime.
+  void _webPlayAndAdvance() {
+    if (_disposed || !_state.isPlaying) return;
+    _webPlayerStateSub?.cancel();
+
+    final endMs = (_webClipEnd * 1000).round();
+
+    _webPlayerStateSub = _webPlayer!.positionStream.listen((pos) async {
+      if (pos.inMilliseconds >= endMs) {
+        _webPlayerStateSub?.cancel();
+        // ignore: avoid_print
+        print('[APS] clip done at pos=${pos.inMilliseconds}ms endMs=$endMs');
+        await _webPlayer!.pause();
+        if (_disposed || !_state.isPlaying) return;
+        final next = _currentIdx + 1;
+        if (next >= _items.length) {
+          _onQueueFinished();
+          return;
+        }
+        await _webPrepareClip(next);
+        _webPlayAndAdvance();
       }
     });
 
-    _updateState(_state.copyWith(isLoading: false));
+    _webPlayer!.play().catchError((_) {});
+  }
+
+  void _startWebClipTimer() {
+    // No-op: verse tracking is handled in _webPrepareClip
   }
 }

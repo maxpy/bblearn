@@ -171,8 +171,10 @@ class BilingualPlayerNotifier extends Notifier<BilingualPlayerState> {
             autoPlay: autoPlay,
           );
       _advancing = false;
-    } catch (e) {
+    } catch (e, st) {
       _advancing = false;
+      // ignore: avoid_print
+      print('[BilingualPlayerNotifier] loadChapter error: $e\n$st');
       state = state.copyWith(isLoading: false, error: e.toString());
     }
   }

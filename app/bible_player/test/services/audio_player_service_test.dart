@@ -32,15 +32,17 @@ void main() {
 
   setUpAll(() {
     JustAudioPlatform.instance = FakeJustAudioPlatform();
-    // Mock audio_session channel so it doesn't hang waiting for native
+    // Mock audio_session channel
     TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
         .setMockMethodCallHandler(
       const MethodChannel('com.ryanheise.audio_session'),
-      (call) async {
-        if (call.method == 'getConfiguration') return null;
-        if (call.method == 'setConfiguration') return null;
-        return null;
-      },
+      (call) async => null,
+    );
+    // Mock native audio player channel (iOS AVAudioEngine)
+    TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+        .setMockMethodCallHandler(
+      const MethodChannel('com.bibleaudio/audio_player'),
+      (call) async => null,
     );
   });
 

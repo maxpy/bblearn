@@ -12,6 +12,7 @@ class AssetPaths {
   AssetPaths._();
 
   static const String _audioBaseUrl = 'https://audio.bblearn.uk/audio';
+  static const String _srtBaseUrl = 'https://audio.bblearn.uk/srt';
 
   static String _testament(int bookNumber) =>
       bookNumber <= 39 ? 'OT' : 'NT';
@@ -62,5 +63,13 @@ class AssetPaths {
   static String audioUrl(String version, BibleBook book, int chapter) {
     final bookName = book.nameEn.toLowerCase().replaceAll(' ', '_');
     return '$_audioBaseUrl/$version/$bookName/$chapter.mp3';
+  }
+
+  /// Network URL for the SRT subtitle file (web only).
+  ///
+  /// e.g. https://audio.bblearn.uk/srt/KJV/mark/1.srt
+  static String srtUrl(String version, BibleBook book, int chapter) {
+    final bookName = book.nameEn.toLowerCase().replaceAll(' ', '_');
+    return '$_srtBaseUrl/$version/$bookName/$chapter.srt';
   }
 }
