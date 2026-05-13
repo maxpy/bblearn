@@ -11,6 +11,5 @@ const canvasKitBase = engineRevision
 _flutter.loader.load({
   config: {
     canvasKitBaseUrl: canvasKitBase,
-    renderer: "html",
   },
 });
