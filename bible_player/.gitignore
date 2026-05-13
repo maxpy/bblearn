@@ -1,0 +1,20 @@
+# Flutter/Dart
+.dart_tool/
+.packages
+build/
+.flutter-plugins
+.flutter-plugins-dependencies
+*.iml
+.idea/
+.vscode/
+*.lock
+
+# Web build output
+build/web/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Node (legacy)
+node_modules/

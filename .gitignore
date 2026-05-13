@@ -18,21 +18,21 @@ __pycache__/
 .wrangler/
 
 # Flutter build outputs
-app/bible_player/build/
-app/bible_player/.dart_tool/
-app/bible_player/.flutter-plugins
-app/bible_player/.flutter-plugins-dependencies
+bible_player/build/
+bible_player/.dart_tool/
+bible_player/.flutter-plugins
+bible_player/.flutter-plugins-dependencies
 
 # iOS
-app/bible_player/ios/Pods/
-app/bible_player/ios/.symlinks/
-app/bible_player/ios/Flutter/Flutter.framework
-app/bible_player/ios/Flutter/Flutter.podspec
+bible_player/ios/Pods/
+bible_player/ios/.symlinks/
+bible_player/ios/Flutter/Flutter.framework
+bible_player/ios/Flutter/Flutter.podspec
 
 # Android
-app/bible_player/android/.gradle/
-app/bible_player/android/local.properties
-app/bible_player/android/key.properties
+bible_player/android/.gradle/
+bible_player/android/local.properties
+bible_player/android/key.properties
 
 # Logs
 *.log
