@@ -30,7 +30,7 @@ flutter drive --driver=test_driver/integration_test.dart \
 
 # Build & deploy web
 flutter build web --release
-HTTPS_PROXY=http://127.0.0.1:7897 HTTP_PROXY=http://127.0.0.1:7897 \
+HTTPS_PROXY=http://127.0.0.1:7890 HTTP_PROXY=http://127.0.0.1:7890 \
   npx wrangler pages deploy build/web --project-name bible-audio --commit-dirty=true
 
 # Build & deploy iOS
@@ -80,6 +80,6 @@ Key providers in `lib/providers/playback_provider.dart`:
 
 ### Platform Notes
 
-- **Web**: proxy (port 7897) required for `wrangler` CLI calls to Cloudflare API
+- **Web**: proxy (port 7890) required for `wrangler` CLI calls to Cloudflare API
 - **iOS**: always build release (`flutter build ios --release`); debug requires flutter tooling to launch
 - **Riverpod codegen**: if adding `@riverpod` annotations, run `flutter pub run build_runner build`
