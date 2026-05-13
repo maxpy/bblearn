@@ -1,6 +1,5 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
-import 'package:google_fonts/google_fonts.dart';
 import 'package:integration_test/integration_test.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
@@ -8,13 +7,6 @@ import 'package:bible_audio_player/main.dart' as app;
 
 void main() {
   IntegrationTestWidgetsFlutterBinding.ensureInitialized();
-  GoogleFonts.config.allowRuntimeFetching = false;
-
-  FlutterError.onError = (details) {
-    final msg = details.exceptionAsString();
-    if (msg.contains('google_fonts') || msg.contains('font')) return;
-    FlutterError.dumpErrorToConsole(details);
-  };
 
   // Helper: set starting position via SharedPreferences before app launch
   Future<void> setStartPosition(int bookNumber, int chapter) async {
