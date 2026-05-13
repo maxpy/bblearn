@@ -532,7 +532,7 @@ List<double> _buildSpeedSteps() {
 
 final _speedSteps = _buildSpeedSteps();
 
-class _StepSpeedControl extends StatefulWidget {
+class _StepSpeedControl extends StatelessWidget {
   final String label;
   final double speed;
   final ValueChanged<double> onChanged;
@@ -543,40 +543,16 @@ class _StepSpeedControl extends StatefulWidget {
     required this.onChanged,
   });
 
-  @override
-  State<_StepSpeedControl> createState() => _StepSpeedControlState();
-}
+  String _fmt(double v) => '${v.toStringAsFixed(1)}x';
 
-class _StepSpeedControlState extends State<_StepSpeedControl> {
-  late FixedExtentScrollController _controller;
-
-  @override
-  void initState() {
-    super.initState();
-    _controller = FixedExtentScrollController(
-      initialItem: _indexOfSpeed(widget.speed),
-    );
-  }
-
-  @override
-  void didUpdateWidget(_StepSpeedControl old) {
-    super.didUpdateWidget(old);
-    if (old.speed != widget.speed) {
-      final idx = _indexOfSpeed(widget.speed);
-      if (_controller.hasClients && _controller.selectedItem != idx) {
-        _controller.jumpToItem(idx);
-      }
-    }
-  }
-
-  @override
-  void dispose() {
-    _controller.dispose();
-    super.dispose();
+  void _adjust(double delta) {
+    final idx = _indexOfSpeed(speed);
+    final newIdx = (idx + delta.sign.toInt()).clamp(0, _speedSteps.length - 1);
+    final newSpeed = _speedSteps[newIdx];
+    if (newSpeed != speed) onChanged(newSpeed);
   }
 
   int _indexOfSpeed(double s) {
-    // Find closest index
     int best = 0;
     double bestDiff = (_speedSteps[0] - s).abs();
     for (int i = 1; i < _speedSteps.length; i++) {
@@ -589,106 +565,42 @@ class _StepSpeedControlState extends State<_StepSpeedControl> {
     return best;
   }
 
-  String _fmt(double v) {
-    // Show one decimal for clean values, two for others
-    final s = v.toStringAsFixed(1);
-    return '${s}x';
-  }
-
-  void _showPicker(BuildContext context) {
-    final theme = Theme.of(context);
-    const itemExtent = 40.0;
-    int selectedIdx = _indexOfSpeed(widget.speed);
-    showModalBottomSheet<void>(
-      context: context,
-      builder: (_) {
-        return StatefulBuilder(
-          builder: (context, setSheetState) {
-            return SizedBox(
-              height: 240,
-              child: Column(
-                children: [
-                  Padding(
-                    padding: const EdgeInsets.symmetric(vertical: 8),
-                    child: Text(widget.label,
-                        style: theme.textTheme.titleSmall),
-                  ),
-                  Expanded(
-                    child: ListWheelScrollView.useDelegate(
-                      controller: _controller,
-                      itemExtent: itemExtent,
-                      perspective: 0.003,
-                      diameterRatio: 1.8,
-                      physics: const FixedExtentScrollPhysics(),
-                      onSelectedItemChanged: (idx) {
-                        setSheetState(() => selectedIdx = idx);
-                      },
-                      childDelegate: ListWheelChildBuilderDelegate(
-                        childCount: _speedSteps.length,
-                        builder: (context, idx) {
-                          final v = _speedSteps[idx];
-                          final selected = selectedIdx == idx;
-                          return Center(
-                            child: Text(
-                              _fmt(v),
-                              style: theme.textTheme.bodyLarge?.copyWith(
-                                fontWeight: selected
-                                    ? FontWeight.bold
-                                    : FontWeight.normal,
-                                color: selected
-                                    ? theme.colorScheme.primary
-                                    : null,
-                              ),
-                            ),
-                          );
-                        },
-                      ),
-                    ),
-                  ),
-                ],
-              ),
-            );
-          },
-        );
-      },
-    ).then((_) {
-      // Apply speed once after sheet is dismissed
-      final newSpeed = _speedSteps[selectedIdx];
-      if (newSpeed != widget.speed) {
-        widget.onChanged(newSpeed);
-      }
-    });
-  }
-
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
-    return GestureDetector(
-      onTap: () => _showPicker(context),
-      child: Container(
-        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
-        decoration: BoxDecoration(
-          border: Border.all(color: theme.colorScheme.outline.withValues(alpha: 0.4)),
-          borderRadius: BorderRadius.circular(8),
-        ),
-        child: Column(
+    return Column(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        Text(label,
+            style: theme.textTheme.labelSmall?.copyWith(
+              color: theme.colorScheme.onSurfaceVariant,
+            )),
+        const SizedBox(height: 2),
+        Row(
           mainAxisSize: MainAxisSize.min,
           children: [
-            Text(widget.label,
-                style: theme.textTheme.labelSmall?.copyWith(
-                  color: theme.colorScheme.onSurfaceVariant,
-                )),
-            const SizedBox(height: 2),
+            GestureDetector(
+              onTap: () => _adjust(-1),
+              child: Icon(Icons.remove, size: 16,
+                  color: theme.colorScheme.primary),
+            ),
+            const SizedBox(width: 4),
             Text(
-              _fmt(widget.speed),
+              _fmt(speed),
               style: theme.textTheme.labelLarge?.copyWith(
                 color: theme.colorScheme.primary,
                 fontWeight: FontWeight.bold,
               ),
             ),
+            const SizedBox(width: 4),
+            GestureDetector(
+              onTap: () => _adjust(1),
+              child: Icon(Icons.add, size: 16,
+                  color: theme.colorScheme.primary),
+            ),
           ],
         ),
-      ),
+      ],
     );
   }
 }

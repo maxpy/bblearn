@@ -190,6 +190,9 @@ class AudioPlayerService {
     _updateState(_state.copyWith(isPlaying: true));
 
     if (kIsWeb) {
+      if (_currentIdx < _items.length) {
+        await _webPlayer?.setSpeed(_items[_currentIdx].speed);
+      }
       await _webPlayer?.play();
       _startPositionTracking();
       return;
@@ -227,7 +230,11 @@ class AudioPlayerService {
     _items = updatedItems;
 
     if (kIsWeb) {
-      // Web: no easy way to update speed mid-play; just update state
+      // Web: apply current item's speed to the player
+      if (_currentIdx < _items.length) {
+        final speed = _items[_currentIdx].speed;
+        await Future.microtask(() => _webPlayer?.setSpeed(speed));
+      }
       return;
     }
 
@@ -381,6 +388,8 @@ class AudioPlayerService {
           currentVerse: _items[idx].verse,
           currentVersion: _items[idx].version,
         ));
+        // Apply per-clip speed on each clip transition
+        _webPlayer?.setSpeed(_items[idx].speed);
       }
     });
     _webPlayer!.playerStateStream.listen((s) {
