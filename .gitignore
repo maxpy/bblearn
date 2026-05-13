@@ -4,7 +4,8 @@
 # Audio files (too large for git)
 KJV/
 CUV/
-
+versions/
+tmp/
 # Node
 node_modules/
 
