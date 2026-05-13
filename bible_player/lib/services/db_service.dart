@@ -15,7 +15,7 @@ import '../models/verse_timing.dart';
 
 /// Loads Bible data from SQLite (mobile) or Cloudflare KV Worker API (web).
 class DbService {
-  static const _kvApiBase = 'https://bible-api.maxpanyong.workers.dev/bible';
+  static const _kvApiBase = 'https://api.bblearn.uk/bible';
   static DbService? _instance;
   static DbService get instance => _instance!;
 

@@ -6,15 +6,7 @@ class ApiConstants {
   static const String audioBaseUrl =
       'https://audio.bblearn.uk/audio';
 
-  /// Base URL where SRT subtitle files are hosted.
-  static const String srtBaseUrl =
-      'https://audio.bblearn.uk/srt';
-
   /// Builds the audio URL for a given version, book and chapter.
   static String audioUrl(String version, String bookId, int chapter) =>
       '$audioBaseUrl/$version/$bookId/$chapter.mp3';
-
-  /// Builds the SRT URL for a given version, book and chapter.
-  static String srtUrl(String version, String bookId, int chapter) =>
-      '$srtBaseUrl/$version/$bookId/$chapter.srt';
 }

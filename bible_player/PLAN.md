@@ -563,7 +563,7 @@ Debugger: Target crashed!
 2. 创建 Cloudflare Worker `bible-api`（`workers/bible-api/`）
    - 路由: `GET /bible/{version}/{book}/{chapter}`
    - 从 KV 读取并返回 JSON，带 CORS 头和 24h 缓存
-   - 部署地址: `https://bible-api.maxpanyong.workers.dev`
+   - 部署地址: `https://api.bblearn.uk`
 
 3. 更新 `lib/services/db_service.dart`
    - Web 平台改为调用 Worker API（`_loadFromKv()`），移除 `AssetService` 依赖
